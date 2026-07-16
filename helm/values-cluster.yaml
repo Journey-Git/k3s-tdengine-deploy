@@ -1,0 +1,52 @@
+# 三节点集群部署配置（适配官方 Chart 3.5.0）
+# 命名空间: ecloud
+# 存储: 每节点 20G 数据 + 5G 日志
+
+replicaCount: 3
+
+image:
+  prefix: tdengine/tsdb
+  # 覆盖默认版本，使用最新稳定版
+  tag: "3.4.1.13"
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  ports:
+    # TCP range required
+    tcp: [6041, 6030, 6060]
+    udp: [6044, 6045]
+
+timezone: "UTC"
+
+resources:
+  limits:
+    cpu: "4"
+    memory: "8Gi"
+  requests:
+    cpu: "2"
+    memory: "4Gi"
+
+storage:
+  className: "local-path"
+  dataSize: "20Gi"
+  logSize: "5Gi"
+
+nodeSelectors:
+  taosd: {}
+
+# Pod 反亲和性：确保 3 个 Pod 分布在不同节点
+affinity:
+  podAntiAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchLabels:
+            app: tdengine
+        topologyKey: kubernetes.io/hostname
+
+clusterDomainSuffix: ""
+
+taoscfg:
+  CLUSTER: "1"
+  TAOS_REPLICA: "3"
+  TAOS_DEBUG_FLAG: "131"

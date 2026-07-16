@@ -1,0 +1,43 @@
+# 单节点部署配置（适配官方 Chart 3.5.0）
+# 命名空间: ecloud
+# 存储: 120G 数据 + 10G 日志
+
+replicaCount: 1
+
+image:
+  prefix: tdengine/tsdb
+  # 覆盖默认版本，使用最新稳定版
+  tag: "3.4.1.13"
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  ports:
+    # TCP range required
+    tcp: [6041, 6030, 6060]
+    udp: [6044, 6045]
+
+timezone: "UTC"
+
+resources:
+  limits:
+    cpu: "2"
+    memory: "4Gi"
+  requests:
+    cpu: "1"
+    memory: "2Gi"
+
+storage:
+  className: "local-path"
+  dataSize: "120Gi"
+  logSize: "10Gi"
+
+nodeSelectors:
+  taosd: {}
+
+clusterDomainSuffix: ""
+
+taoscfg:
+  CLUSTER: "0"
+  TAOS_REPLICA: "1"
+  TAOS_DEBUG_FLAG: "131"

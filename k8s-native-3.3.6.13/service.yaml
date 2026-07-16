@@ -1,0 +1,46 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: tdengine-service
+  namespace: ecloud
+  labels:
+    app: tdengine
+spec:
+  type: ClusterIP
+  selector:
+    app: tdengine
+  ports:
+    - name: tcp6030
+      protocol: "TCP"
+      port: 6030
+    - name: tcp6041
+      protocol: "TCP"
+      port: 6041
+    - name: tcp6060
+      protocol: "TCP"
+      port: 6060
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tdengine-nodeport
+  namespace: ecloud
+  labels:
+    app: tdengine
+spec:
+  type: NodePort
+  selector:
+    app: tdengine
+  ports:
+    - name: taosadapter-http
+      port: 6041
+      nodePort: 30441
+      protocol: TCP
+    - name: taosd-tcp
+      port: 6030
+      nodePort: 30603
+      protocol: TCP
+    - name: taosexplorer-http
+      port: 6060
+      nodePort: 30660
+      protocol: TCP

@@ -1,0 +1,44 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tdengine-config
+  namespace: ecloud
+  labels:
+    app: tdengine
+data:
+  taos.cfg: |
+    # TDengine 服务端配置文件
+    # 数据目录配置（使用 tiered 存储结构）
+    dataDir /data/taos0/  0 1
+    dataDir /data/taos1/  1 0
+    dataDir /data/taos2/  2 0
+
+    # 日志目录
+    logDir /var/log/taos
+
+    # 时区设置
+    timezone UTC
+
+    # 字符集
+    charset UTF-8
+
+    # 调试日志级别（131 = INFO + ERROR + WARN）
+    debugFlag 131
+
+    # 查询内存限制
+    queryBufferSize 128
+
+    # 最大连接数
+    maxShellConns 50000
+    maxConnections 5000
+
+    # 查询相关配置
+    numOfThreadsPerCore 1.0
+    ratioOfQueryCores 1.0
+
+    # 压缩选项
+    compressMsgSize 16000
+    compressColData -1
+
+    # 集群配置（单节点时无需修改）
+    # firstEp tdengine-0.tdengine-service.tdengine.svc.cluster.local:6030
