@@ -27,13 +27,12 @@ echo "[1/3] 删除 Kustomize 管理的资源..."
 cd ${SCRIPT_DIR}
 
 if [ "$KEEP_DATA" = true ]; then
-    # 保留数据：手动删除，不删 PVC
+    # 保留数据：手动删除 TDengine 相关资源，不删 PVC，不删 Namespace
     kubectl delete statefulset tdengine -n ${NAMESPACE} --ignore-not-found=true
     kubectl delete service tdengine-service tdengine-nodeport -n ${NAMESPACE} --ignore-not-found=true
     kubectl delete configmap tdengine-config -n ${NAMESPACE} --ignore-not-found=true
-    kubectl delete namespace ${NAMESPACE} --ignore-not-found=true
 else
-    # 完全卸载：使用 kustomize 删除所有
+    # 完全卸载：使用 kustomize 删除所有（不含 Namespace）
     kubectl delete -k . --ignore-not-found=true
 fi
 
@@ -48,7 +47,7 @@ fi
 echo "[3/3] 验证清理状态..."
 echo ""
 echo "剩余资源:"
-kubectl get all -n ${NAMESPACE} 2>/dev/null || echo "Namespace ${NAMESPACE} 已删除或为空"
+kubectl get all -n ${NAMESPACE} 2>/dev/null || echo "Namespace ${NAMESPACE} 为空或无法访问"
 
 echo ""
 echo "========================================"

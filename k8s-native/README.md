@@ -14,7 +14,6 @@ k8s-native/
 ├── DEPLOYMENT_SUMMARY.md     # 部署总结（公共）
 │
 ├── local-path/               # 方案一：local-path 自动管理
-│   ├── tdengine_namespace.yaml   # 命名空间
 │   ├── tdengine_configmap.yaml   # taos.cfg 配置
 │   ├── tdengine.yaml             # Service + StatefulSet
 │   ├── kustomization.yaml        # Kustomize 配置（引用上面文件）
@@ -22,7 +21,6 @@ k8s-native/
 │   └── uninstall.sh              # 卸载脚本
 │
 └── hostpath/                 # 方案二：hostPath 手动指定路径
-    ├── tdengine_namespace.yaml   # 命名空间
     ├── tdengine_configmap.yaml   # taos.cfg 配置
     ├── tdengine_hostpath.yaml    # PV + PVC + Service + StatefulSet
     ├── kustomization.yaml        # Kustomize 配置（引用上面文件）
@@ -341,11 +339,14 @@ kubectl exec -it tdengine-0 -n ecloud -- taosdump -o /tmp/backup -D product_basi
 # 卸载（保留数据，只删除 StatefulSet/Service/ConfigMap）
 ./uninstall.sh --keep-data
 
-# 完全手动清理（包括数据）
+# 完全手动清理（只删除 TDengine 相关资源，保留 Namespace）
 kubectl delete statefulset tdengine -n ecloud
 kubectl delete svc -l app=tdengine -n ecloud
 kubectl delete pvc -l app=tdengine -n ecloud
-kubectl delete namespace ecloud
+
+# ⚠️  危险操作：删除整个 Namespace 会清空该空间下所有服务
+# 如需执行，请确认 Namespace 下只有 TDengine 且无其他重要资源
+# kubectl delete namespace ecloud
 ```
 
 ## 十、注意事项

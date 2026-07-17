@@ -32,8 +32,16 @@ kubectl kustomize --help > /dev/null 2>&1 || {
     echo "警告: kubectl kustomize 不可用，将尝试直接 apply"
 }
 
-# 4. 部署 TDengine
-echo "[4/5] 部署 TDengine..."
+# 4. 创建命名空间（如果不存在）
+echo "[4/5] 创建命名空间 ${NAMESPACE}..."
+kubectl get namespace ${NAMESPACE} > /dev/null 2>&1 || {
+    echo "命名空间 ${NAMESPACE} 不存在，创建中..."
+    kubectl create namespace ${NAMESPACE}
+    echo "命名空间 ${NAMESPACE} 已创建"
+}
+
+# 5. 部署 TDengine
+echo "[5/5] 部署 TDengine..."
 cd ${SCRIPT_DIR}
 kubectl apply -k .
 

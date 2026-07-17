@@ -30,7 +30,6 @@ k8s-native/
 ├── DEPLOYMENT_SUMMARY.md        # 部署总结（公共）
 │
 ├── local-path/                  # 方案一：local-path 自动管理
-│   ├── tdengine_namespace.yaml      # 命名空间
 │   ├── tdengine_configmap.yaml      # taos.cfg 配置
 │   ├── tdengine.yaml                # Service + StatefulSet
 │   ├── kustomization.yaml           # Kustomize 配置
@@ -38,7 +37,6 @@ k8s-native/
 │   └── uninstall.sh                 # 卸载脚本
 │
 └── hostpath/                      # 方案二：hostPath 手动指定路径
-    ├── tdengine_namespace.yaml      # 命名空间
     ├── tdengine_configmap.yaml      # taos.cfg 配置
     ├── tdengine_hostpath.yaml       # PV + PVC + Service + StatefulSet
     ├── kustomization.yaml           # Kustomize 配置

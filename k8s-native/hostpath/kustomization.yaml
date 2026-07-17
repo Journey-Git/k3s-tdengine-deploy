@@ -4,7 +4,6 @@ kind: Kustomization
 namespace: ecloud
 
 resources:
-  - tdengine_namespace.yaml
   - tdengine_configmap.yaml
   - tdengine_hostpath.yaml
 
