@@ -262,6 +262,7 @@ taoscfg:
   CLUSTER: "0"          # 0=单节点, 1=集群
   TAOS_REPLICA: "1"      # 副本数（集群模式）
   TAOS_DEBUG_FLAG: "131"  # 日志级别
+  TAOS_SML_TSDEFAULTNAME: "ts"  # schemaless 写入默认时间戳列名
 ```
 
 ### 5.2 存储容量规划

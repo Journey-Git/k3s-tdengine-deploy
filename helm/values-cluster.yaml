@@ -50,3 +50,4 @@ taoscfg:
   CLUSTER: "1"
   TAOS_REPLICA: "3"
   TAOS_DEBUG_FLAG: "131"
+  TAOS_SML_TSDEFAULTNAME: "ts"  # schemaless 写入默认时间戳列名

@@ -9,6 +9,7 @@ resources:
   - service.yaml
   - statefulset.yaml
 
-commonLabels:
-  app: tdengine
-  version: "3.4.1.13"
+labels:
+  - pairs:
+      app: tdengine
+    includeSelectors: true

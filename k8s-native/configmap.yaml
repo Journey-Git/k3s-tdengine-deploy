@@ -19,6 +19,9 @@ data:
     # 时区设置
     timezone UTC
 
+    # schemaless 写入默认时间戳列名
+    smlTsDefaultName ts
+
     # 字符集
     charset UTF-8
 

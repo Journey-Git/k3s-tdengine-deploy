@@ -117,23 +117,17 @@ migrate_batch("fitness_result", "2024-01-01T00:00:00Z", "2024-01-02T00:00:00Z")
 
 **schemaless 写入时间戳列名配置（`smlTsDefaultName`）**
 
-`smlTsDefaultName` 是数据库级别配置，决定 schemaless 自动建表时的时间戳列名。
+`smlTsDefaultName` 是数据库级别配置，决定 schemaless 自动建表时的时间戳列名。**只能在创建数据库时设置，不支持 ALTER 修改。**
 
-**配置位置：数据库创建时指定**
+**配置方式：创建数据库时指定**
 
 ```sql
 -- 创建数据库时设置（推荐）
 CREATE DATABASE IF NOT EXISTS product_basic
-    KEEP 365
-    VGROUPS 4
-    PRECISION 'ns'
-    SMLTSDEFAULTNAME 'ts';  -- schemaless 写入时默认时间戳列名，默认 'ts'
-```
-
-**修改现有数据库**
-
-```sql
-ALTER DATABASE product_basic SET SMLTSDEFAULTNAME 'ts';
+  KEEP 365
+  VGROUPS 4
+  PRECISION 'ns'
+  SMLTSDEFAULTNAME 'ts';  -- schemaless 写入时默认时间戳列名，默认 'ts'
 ```
 
 **验证配置**
@@ -157,6 +151,8 @@ data:
     # 全局默认值，重启生效
     smlTsDefaultName ts
 ```
+
+> **注意**：`ALTER DATABASE` 不支持修改 `SMLTSDEFAULTNAME`。如需修改，必须 `DROP DATABASE` 后重新创建，数据需重新导入。
 
 **taosAdapter 迁移数据时的配置流程**
 
