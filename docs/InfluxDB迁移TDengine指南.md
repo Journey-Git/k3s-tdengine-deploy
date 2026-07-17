@@ -115,6 +115,91 @@ migrate_batch("fitness_result", "2024-01-01T00:00:00Z", "2024-01-02T00:00:00Z")
 | **乱序数据** | TDengine 默认拒绝早于最新数据的时间戳 | 配置 `update 1` 允许更新 |
 | **特殊字符转义** | 字符串含空格/逗号需转义 | `score_text=优秀` → `score_text="优秀"` |
 
+**schemaless 写入时间戳列名配置（`smlTsDefaultName`）**
+
+`smlTsDefaultName` 是数据库级别配置，决定 schemaless 自动建表时的时间戳列名。
+
+**配置位置：数据库创建时指定**
+
+```sql
+-- 创建数据库时设置（推荐）
+CREATE DATABASE IF NOT EXISTS product_basic
+    KEEP 365
+    VGROUPS 4
+    PRECISION 'ns'
+    SMLTSDEFAULTNAME 'ts';  -- schemaless 写入时默认时间戳列名，默认 'ts'
+```
+
+**修改现有数据库**
+
+```sql
+ALTER DATABASE product_basic SET SMLTSDEFAULTNAME 'ts';
+```
+
+**验证配置**
+
+```sql
+-- 查看数据库配置
+SHOW CREATE DATABASE product_basic;
+```
+
+**K8s 中通过 ConfigMap 配置全局默认值（可选）**
+
+```yaml
+# configmap.yaml - taos.cfg 全局配置
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tdengine-config
+  namespace: ecloud
+data:
+  taos.cfg: |
+    # 全局默认值，重启生效
+    smlTsDefaultName ts
+```
+
+**taosAdapter 迁移数据时的配置流程**
+
+taosAdapter 只是数据接收入口，实际建表和写入由 **taosd 服务端**处理：
+
+```
+taosAdapter (接收) → taosd (处理) → 检查数据库 smlTsDefaultName → 自动建表/写入
+```
+
+**迁移数据完整步骤**
+
+```bash
+# 1. 创建数据库（含 smlTsDefaultName 配置）
+kubectl exec -it tdengine-0 -n ecloud -- taos -s "
+  CREATE DATABASE IF NOT EXISTS product_basic
+  KEEP 365
+  VGROUPS 4
+  PRECISION 'ns'
+  SMLTSDEFAULTNAME 'ts';
+"
+
+# 2. 验证数据库配置
+kubectl exec -it tdengine-0 -n ecloud -- taos -s "SHOW CREATE DATABASE product_basic;"
+
+# 3. 使用 taosAdapter 写入数据（自动建表）
+curl -X POST \
+  http://192.168.31.222:30441/influxdb/v1/write?db=product_basic&precision=ns \
+  -u root:taosdata \
+  --data-binary "fitness_result,item_code=1001,student_id=12345 attempts=3,score_value=85.5 1705312200000000000"
+
+# 4. 验证自动创建的超级表结构
+kubectl exec -it tdengine-0 -n ecloud -- taos -s "USE product_basic; DESCRIBE fitness_result;"
+```
+
+**显式建表 vs schemaless 自动建表对比**
+
+| 方式 | 建表时机 | smlTsDefaultName 影响 | 适用场景 |
+|------|---------|----------------------|---------|
+| **显式建表** | 预先 `CREATE STABLE` | 无影响，列名自己定义 | 生产环境，schema 明确 |
+| **schemaless 自动建表** | 首次写入时自动创建 | 决定时间戳列名 | 快速迁移，schema 不确定 |
+
+> **注意**：taosAdapter 不会自动创建数据库，需预先执行 `CREATE DATABASE`。schemaless 首次写入时自动创建超级表，时间戳列名由 `smlTsDefaultName` 决定。
+
 **批量写入优化**
 
 ```python
