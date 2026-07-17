@@ -138,10 +138,10 @@ spec:
               cpu: "2"
               memory: "4Gi"
           volumeMounts:
-            # 数据目录（暂时不挂载，使用容器默认路径）
-            # - name: taosdata
-            #   mountPath: /var/lib/taos
-            #   subPath: data
+            # 数据目录（挂载 PVC，持久化存储）
+            - name: taosdata
+              mountPath: /var/lib/taos
+              subPath: data
             - name: taosdata
               mountPath: /var/log/taos
               subPath: log

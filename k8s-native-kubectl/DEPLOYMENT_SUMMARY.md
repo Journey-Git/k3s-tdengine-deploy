@@ -1,9 +1,9 @@
-# TDengine K3s 部署总结
+# TDengine K3s 部署总结（纯 kubectl 版本）
 
 ## 一、部署概述
 
 - **目标**：在 K3s 单节点集群上部署 TDengine 3.x 时序数据库
-- **部署方式**：手动 K8s YAML（基于 TDengine-Operator 3.0 官方规范）
+- **部署方式**：原生 K8s YAML，使用 `kubectl apply -f` 直接部署，无需 Kustomize
 - **命名空间**：`ecloud`
 - **镜像版本**：`tdengine/tsdb:3.4.1.13`
 
@@ -25,47 +25,47 @@ kubectl get sc local-path
 ### 2.2 部署文件结构
 
 ```
-k8s-native/
-├── README.md                    # 部署文档（公共）
-├── DEPLOYMENT_SUMMARY.md        # 部署总结（公共）
+k8s-native-kubectl/
+├── README.md                 # 部署文档（公共）
+├── DEPLOYMENT_SUMMARY.md     # 部署总结（公共）
 │
-├── local-path/                  # 方案一：local-path 自动管理
-│   ├── tdengine_namespace.yaml      # 命名空间
-│   ├── tdengine_configmap.yaml      # taos.cfg 配置
-│   ├── tdengine.yaml                # Service + StatefulSet
-│   ├── kustomization.yaml           # Kustomize 配置
-│   ├── deploy.sh                    # 一键部署脚本
-│   └── uninstall.sh                 # 卸载脚本
+├── local-path/               # 方案一：local-path 自动管理
+│   ├── tdengine_configmap.yaml   # taos.cfg 配置
+│   ├── tdengine.yaml             # Namespace + Service + StatefulSet
+│   ├── deploy.sh                 # 一键部署脚本
+│   └── uninstall.sh              # 卸载脚本
 │
-└── hostpath/                      # 方案二：hostPath 手动指定路径
-    ├── tdengine_namespace.yaml      # 命名空间
-    ├── tdengine_configmap.yaml      # taos.cfg 配置
-    ├── tdengine_hostpath.yaml       # PV + PVC + Service + StatefulSet
-    ├── kustomization.yaml           # Kustomize 配置
-    ├── deploy.sh                    # 一键部署脚本
-    └── uninstall.sh                 # 卸载脚本
+└── hostpath/                 # 方案二：hostPath 手动指定路径
+    ├── tdengine_configmap.yaml   # taos.cfg 配置
+    ├── tdengine_hostpath.yaml    # PV + PVC + Namespace + Service + StatefulSet
+    ├── deploy.sh                 # 一键部署脚本
+    └── uninstall.sh              # 卸载脚本
 ```
 
-> **说明**：
-> - `[复制]` 标记的文件是从父目录复制到子文件夹的公共文件
-> - `[差异]` 标记的文件是各方案特有的配置文件
-> - 每个方案文件夹可直接进入执行部署，无需依赖父目录文件
-> - 文档文件（`README.md`、`DEPLOYMENT_SUMMARY.md`）仅在父目录保留
+> **说明**：每个方案文件夹包含完整的独立部署文件，可直接进入执行部署，无需依赖父目录文件。
 
 ### 2.3 执行部署
 
 #### 方案一：local-path 自动部署（默认）
 
 ```bash
-cd k8s-native/local-path/
+cd k8s-native-kubectl/local-path/
 ./deploy.sh
 ```
 
 或手动执行：
 
 ```bash
-cd k8s-native/local-path/
-kubectl apply -k .
+cd k8s-native-kubectl/local-path/
+
+# 创建命名空间（如果不存在）
+kubectl create namespace ecloud --dry-run=client -o yaml | kubectl apply -f -
+
+# 部署 ConfigMap
+kubectl apply -f tdengine_configmap.yaml
+
+# 部署 Service + StatefulSet
+kubectl apply -f tdengine.yaml
 ```
 
 > **注意**：此方案数据目录和日志均已挂载 PVC，数据持久化。生产环境可直接使用。
@@ -85,23 +85,31 @@ sudo chmod 755 /mnt/disk1/k3s/tdengine
 **部署：**
 
 ```bash
-cd k8s-native/hostpath/
+cd k8s-native-kubectl/hostpath/
 ./deploy.sh
 ```
 
 或手动执行：
 
 ```bash
-cd k8s-native/hostpath/
-kubectl apply -k .
+cd k8s-native-kubectl/hostpath/
+
+# 创建命名空间（如果不存在）
+kubectl create namespace ecloud --dry-run=client -o yaml | kubectl apply -f -
+
+# 部署 ConfigMap
+kubectl apply -f tdengine_configmap.yaml
+
+# 部署 PV + PVC + Service + StatefulSet
+kubectl apply -f tdengine_hostpath.yaml
 ```
 
 部署脚本执行流程：
 1. 检查 K3s 集群版本
-2. 检查 StorageClass
+2. 检查 StorageClass（local-path）或 hostPath 目录
 3. 创建命名空间 `ecloud`
-4. 检查 NodePort 端口占用
-5. 执行 `kubectl apply -k .`
+4. 部署 ConfigMap
+5. 部署 Service + StatefulSet
 6. 等待 Pod 启动（约 1-2 分钟）
 7. 验证部署状态
 
@@ -178,8 +186,8 @@ kubectl logs -f tdengine-0 -n ecloud
 # 进入 TDengine 容器
 kubectl exec -it tdengine-0 -n ecloud -- taos
 
-# 升级配置（Kustomize 版本）
-kubectl apply -k .
+# 升级配置（重新 apply YAML）
+kubectl apply -f tdengine.yaml
 
 # 回滚版本
 kubectl rollout undo statefulset/tdengine -n ecloud
@@ -202,7 +210,7 @@ kubectl rollout undo statefulset/tdengine -n ecloud
 # 3. 添加 Pod 反亲和性配置
 
 # 应用更新
-kubectl apply -k .
+kubectl apply -f tdengine.yaml
 
 # 验证
 kubectl exec -it tdengine-0 -n ecloud -- taos -s "show dnodes"
@@ -237,6 +245,7 @@ kubectl delete pvc taosdata-tdengine-2 -n ecloud
 
 ## 八、参考文档
 
+- [Kustomize 版本部署](../k8s-native/README.md)
 - [TDengine-Operator GitHub](https://github.com/taosdata/TDengine-Operator/tree/3.0)
 - [TDengine K8s 手动部署指南](https://github.com/taosdata/TDengine-Operator/blob/3.0/src/en/2.1-tdengine-step-by-step.md)
 - [TDengine 官方文档](https://docs.tdengine.com/)

@@ -20,7 +20,7 @@ k3s-tdengine-deploy/
 │   │   ├── deploy.sh                    # 一键部署脚本
 │   │   ├── uninstall.sh                 # 卸载脚本
 │   │   └── tdengine.yaml                # 完整配置（Namespace + Service + StatefulSet）
-│   │                                      数据暂不持久化（注释状态）
+│   │                                      数据持久化到 local-path PV
 │   │
 │   └── hostpath/                        # 方案二：hostPath 手动指定路径
 │       ├── tdengine_configmap.yaml      # taos.cfg 配置
@@ -39,7 +39,7 @@ k3s-tdengine-deploy/
 │   │   ├── deploy.sh                    # 一键部署脚本
 │   │   ├── uninstall.sh                 # 卸载脚本
 │   │   └── tdengine.yaml                # 完整配置（Namespace + Service + StatefulSet）
-│   │                                      数据暂不持久化（注释状态）
+│   │                                      数据持久化到 local-path PV
 │   │
 │   └── hostpath/                        # 方案二：hostPath 手动指定路径
 │       ├── tdengine_configmap.yaml      # taos.cfg 配置
@@ -56,8 +56,8 @@ k3s-tdengine-deploy/
 > **说明**：
 > - 父目录（`k8s-native/`、`k8s-native-kubectl/`）只保留文档和脚本，不包含 YAML 部署文件
 > - 每个方案文件夹（`local-path/`、`hostpath/`）包含完整的独立部署文件，可直接进入执行部署
-> - 方案一（`local-path/`）：数据目录暂不挂载 PVC，重启后数据丢失，适合测试/开发
-> - 方案二（`hostpath/`）：数据持久化到指定宿主机路径，适合生产环境
+> - 方案一（`local-path/`）：数据持久化到 local-path 自动分配的 PV，日志也持久化，适合生产环境
+> - 方案二（`hostpath/`）：数据持久化到指定宿主机路径，适合需要固定路径的场景
 
 ## 部署方式选择
 
