@@ -1,0 +1,186 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ecloud
+  labels:
+    app: tdengine
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tdengine-service
+  namespace: ecloud
+  labels:
+    app: tdengine
+spec:
+  type: ClusterIP
+  selector:
+    app: tdengine
+  ports:
+    - name: tcp6030
+      protocol: "TCP"
+      port: 6030
+    - name: tcp6041
+      protocol: "TCP"
+      port: 6041
+    - name: tcp6060
+      protocol: "TCP"
+      port: 6060
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tdengine-nodeport
+  namespace: ecloud
+  labels:
+    app: tdengine
+spec:
+  type: NodePort
+  selector:
+    app: tdengine
+  ports:
+    - name: taosadapter-http
+      port: 6041
+      nodePort: 30441
+      protocol: TCP
+    - name: taosd-tcp
+      port: 6030
+      nodePort: 30603
+      protocol: TCP
+    - name: taosexplorer-http
+      port: 6060
+      nodePort: 30660
+      protocol: TCP
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: tdengine
+  namespace: ecloud
+  labels:
+    app: tdengine
+spec:
+  serviceName: tdengine-service
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tdengine
+  template:
+    metadata:
+      labels:
+        app: tdengine
+    spec:
+      containers:
+        # TDengine 容器镜像
+        # 默认从 Docker Hub 拉取: docker.io/tdengine/tsdb:3.4.1.13
+        # 离线部署时:
+        #   1. 在有网络的机器执行: docker pull docker.io/tdengine/tsdb:3.4.1.13
+        #   2. 导出镜像: docker save docker.io/tdengine/tsdb:3.4.1.13 -o tdengine.tar
+        #   3. 复制到 K3s 节点: scp tdengine.tar root@k3s-node:/opt/
+        #   4. 导入镜像: sudo k3s ctr images import /opt/tdengine.tar
+        #   5. 将下方 imagePullPolicy 改为 Never
+        - name: tdengine
+          image: tdengine/tsdb:3.4.1.13
+          # 镜像拉取策略:
+          # IfNotPresent - 本地没有时才拉取（默认，适合在线环境）
+          # Always       - 每次启动都强制拉取
+          # Never        - 只使用本地镜像（适合离线环境）
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: tcp6030
+              protocol: "TCP"
+              containerPort: 6030
+            - name: tcp6041
+              protocol: "TCP"
+              containerPort: 6041
+            - name: tcp6060
+              protocol: "TCP"
+              containerPort: 6060
+          env:
+            # POD_NAME for FQDN config
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            # SERVICE_NAME and NAMESPACE for fqdn resolve
+            - name: SERVICE_NAME
+              value: "tdengine-service"
+            - name: STS_NAME
+              value: "tdengine"
+            - name: STS_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            # TZ for timezone settings
+            - name: TZ
+              value: "UTC"
+            # TAOS_ prefix will be configured in taos.cfg, strip prefix and camelCase
+            - name: TAOS_SERVER_PORT
+              value: "6030"
+            # Must set if you want a cluster. For single node, firstEp points to itself
+            - name: TAOS_FIRST_EP
+              value: "$(STS_NAME)-0.$(SERVICE_NAME).$(STS_NAMESPACE).svc.cluster.local:$(TAOS_SERVER_PORT)"
+            # TAOS_FQDN should always be set in k8s env
+            - name: TAOS_FQDN
+              value: "$(POD_NAME).$(SERVICE_NAME).$(STS_NAMESPACE).svc.cluster.local"
+            # Cluster mode: 0 = standalone, 1 = cluster
+            - name: TAOS_CLUSTER
+              value: "0"
+            # Debug flag
+            - name: TAOS_DEBUG_FLAG
+              value: "131"
+          resources:
+            requests:
+              cpu: "1"
+              memory: "2Gi"
+            limits:
+              cpu: "2"
+              memory: "4Gi"
+          volumeMounts:
+            # 数据目录（暂时不挂载，使用容器默认路径）
+            # - name: taosdata
+            #   mountPath: /var/lib/taos
+            #   subPath: data
+            - name: taosdata
+              mountPath: /var/log/taos
+              subPath: log
+            - name: taosconfig
+              mountPath: /etc/taos/
+              readOnly: true
+          startupProbe:
+            exec:
+              command:
+                - taos-check
+                - startup
+            failureThreshold: 360
+            periodSeconds: 10
+          readinessProbe:
+            exec:
+              command:
+                - taos-check
+                - service
+            initialDelaySeconds: 5
+            timeoutSeconds: 5000
+          livenessProbe:
+            exec:
+              command:
+                - taos-check
+                - service
+            initialDelaySeconds: 15
+            periodSeconds: 20
+      volumes:
+        - name: taosconfig
+          configMap:
+            name: tdengine-config
+            defaultMode: 0644
+  volumeClaimTemplates:
+    - metadata:
+        name: taosdata
+      spec:
+        accessModes:
+          - "ReadWriteOnce"
+        storageClassName: local-path
+        resources:
+          requests:
+            storage: 5Gi

@@ -9,6 +9,9 @@ data:
   taos.cfg: |
     # TDengine 服务端配置文件
 
+    # 数据目录
+    dataDir /var/lib/taos
+
     # 日志目录
     logDir /var/log/taos
 

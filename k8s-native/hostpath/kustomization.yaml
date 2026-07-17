@@ -4,10 +4,9 @@ kind: Kustomization
 namespace: ecloud
 
 resources:
-  - namespace.yaml
-  - configmap.yaml
-  - service.yaml
-  - statefulset.yaml
+  - tdengine_namespace.yaml
+  - tdengine_configmap.yaml
+  - tdengine_hostpath.yaml
 
 labels:
   - pairs:

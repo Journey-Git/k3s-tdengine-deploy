@@ -6,6 +6,43 @@
 
 部署方案基于 [TDengine-Operator 3.0 分支](https://github.com/taosdata/TDengine-Operator/tree/3.0) 官方手动部署规范，适配 K3s 单节点环境。
 
+## 文件结构
+
+```
+k8s-native/
+├── README.md                 # 本文档（公共）
+├── DEPLOYMENT_SUMMARY.md     # 部署总结（公共）
+│
+├── local-path/               # 方案一：local-path 自动管理
+│   ├── tdengine_namespace.yaml   # 命名空间
+│   ├── tdengine_configmap.yaml   # taos.cfg 配置
+│   ├── tdengine.yaml             # Service + StatefulSet
+│   ├── kustomization.yaml        # Kustomize 配置（引用上面文件）
+│   ├── deploy.sh                 # 一键部署脚本
+│   └── uninstall.sh              # 卸载脚本
+│
+└── hostpath/                 # 方案二：hostPath 手动指定路径
+    ├── tdengine_namespace.yaml   # 命名空间
+    ├── tdengine_configmap.yaml   # taos.cfg 配置
+    ├── tdengine_hostpath.yaml    # PV + PVC + Service + StatefulSet
+    ├── kustomization.yaml        # Kustomize 配置（引用上面文件）
+    ├── deploy.sh                 # 一键部署脚本
+    └── uninstall.sh              # 卸载脚本
+```
+
+> **说明**：每个方案文件夹内包含 4 个 YAML 文件 + 2 个脚本文件，可直接进入对应文件夹独立部署，无需依赖父目录文件。
+>
+> **文档文件**（`README.md`、`DEPLOYMENT_SUMMARY.md`）仅在父目录保留，子文件夹不重复。
+
+## 持久化方案选择
+
+| 方案 | 目录 | 数据路径 | 日志路径 | 宿主机路径 | 适用场景 |
+|------|------|---------|---------|-----------|---------|
+| **方案一：local-path 自动** | `local-path/` | 容器默认（暂不挂载） | `/var/log/taos` | 自动分配 | 简单部署，数据暂不持久化 |
+| **方案二：hostPath 手动** | `hostpath/` | `/var/lib/taos` | `/var/log/taos` | `/mnt/disk1/k3s/tdengine` | 需要指定存储路径，数据持久化 |
+
+> **注意**：方案一数据目录（`/var/lib/taos`）暂时未挂载 PVC，使用容器默认路径，重启后数据丢失。如需持久化，取消 `tdengine.yaml` 中数据目录的注释。
+
 ## 二、前置要求
 
 1. **K3s 集群**已正常运行
@@ -147,7 +184,7 @@ kubectl get sc
 kubectl get sc local-path
 ```
 
-### 5.2 一键部署
+### 5.2 方案一：local-path 自动部署（默认）
 
 ```bash
 ./deploy.sh
@@ -159,7 +196,39 @@ kubectl get sc local-path
 kubectl apply -k .
 ```
 
-### 5.3 验证部署
+> **注意**：此方案数据目录（`/var/lib/taos`）暂时未挂载 PVC，重启后数据丢失。生产环境建议使用方案二或取消数据目录注释。
+
+### 5.3 方案二：hostPath 手动部署（指定宿主机路径）
+
+**前置准备：**
+
+```bash
+# 1. 创建宿主机目录
+sudo mkdir -p /mnt/disk1/k3s/tdengine
+
+# 2. 设置权限（与容器内用户一致）
+sudo chmod 755 /mnt/disk1/k3s/tdengine
+```
+
+**部署：**
+
+```bash
+# 使用方案二配置
+cp hostpath/tdengine_hostpath.yaml local-path/tdengine.yaml
+kubectl apply -k .
+```
+
+或单独应用：
+
+```bash
+# 1. 部署 ConfigMap
+kubectl apply -f tdengine_configmap.yaml
+
+# 2. 部署应用（含 PV + PVC + Service + StatefulSet）
+kubectl apply -f hostpath/tdengine_hostpath.yaml
+```
+
+### 5.4 验证部署
 
 ```bash
 # 查看 Pod 状态

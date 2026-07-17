@@ -25,23 +25,75 @@ kubectl get sc local-path
 ### 2.2 部署文件结构
 
 ```
-k3s-tdengine-deploy/
-├── namespace.yaml       # 命名空间 ecloud
-├── configmap.yaml       # taos.cfg 配置
-├── service.yaml         # ClusterIP + NodePort Service
-├── statefulset.yaml     # TDengine StatefulSet
-├── kustomization.yaml   # Kustomize 配置
-├── deploy.sh            # 一键部署脚本
-├── uninstall.sh         # 卸载脚本
-├── values-single-node.yaml   # Helm 单节点配置（备用）
-└── values-cluster.yaml       # Helm 集群配置（备用）
+k8s-native/
+├── README.md                    # 部署文档（公共）
+├── DEPLOYMENT_SUMMARY.md        # 部署总结（公共）
+│
+├── local-path/                  # 方案一：local-path 自动管理
+│   ├── tdengine_namespace.yaml      # 命名空间
+│   ├── tdengine_configmap.yaml      # taos.cfg 配置
+│   ├── tdengine.yaml                # Service + StatefulSet
+│   ├── kustomization.yaml           # Kustomize 配置
+│   ├── deploy.sh                    # 一键部署脚本
+│   └── uninstall.sh                 # 卸载脚本
+│
+└── hostpath/                      # 方案二：hostPath 手动指定路径
+    ├── tdengine_namespace.yaml      # 命名空间
+    ├── tdengine_configmap.yaml      # taos.cfg 配置
+    ├── tdengine_hostpath.yaml       # PV + PVC + Service + StatefulSet
+    ├── kustomization.yaml           # Kustomize 配置
+    ├── deploy.sh                    # 一键部署脚本
+    └── uninstall.sh                 # 卸载脚本
 ```
+
+> **说明**：
+> - `[复制]` 标记的文件是从父目录复制到子文件夹的公共文件
+> - `[差异]` 标记的文件是各方案特有的配置文件
+> - 每个方案文件夹可直接进入执行部署，无需依赖父目录文件
+> - 文档文件（`README.md`、`DEPLOYMENT_SUMMARY.md`）仅在父目录保留
 
 ### 2.3 执行部署
 
+#### 方案一：local-path 自动部署（默认）
+
 ```bash
-cd k3s-tdengine-deploy/
+cd k8s-native/local-path/
 ./deploy.sh
+```
+
+或手动执行：
+
+```bash
+cd k8s-native/local-path/
+kubectl apply -k .
+```
+
+> **注意**：此方案数据目录（`/var/lib/taos`）暂时未挂载 PVC，重启后数据丢失。生产环境建议使用方案二或取消数据目录注释。
+
+#### 方案二：hostPath 手动部署（指定宿主机路径）
+
+**前置准备：**
+
+```bash
+# 1. 创建宿主机目录
+sudo mkdir -p /mnt/disk1/k3s/tdengine
+
+# 2. 设置权限
+sudo chmod 755 /mnt/disk1/k3s/tdengine
+```
+
+**部署：**
+
+```bash
+cd k8s-native/hostpath/
+./deploy.sh
+```
+
+或手动执行：
+
+```bash
+cd k8s-native/hostpath/
+kubectl apply -k .
 ```
 
 部署脚本执行流程：
@@ -72,467 +124,100 @@ kubectl exec -it tdengine-0 -n ecloud -- taos -s "show dnodes; show mnodes"
 curl -u root:taosdata http://<node-ip>:30441/rest/sql -d "show databases"
 ```
 
-## 三、遇到的问题及解决方案
+## 三、配置参数
 
-### 问题1：镜像拉取失败（ImagePullBackOff）
+### 3.1 资源限制
 
-**现象**：
-```
-tdengine-0   0/1   ImagePullBackOff
-```
+| 类型 | CPU | 内存 |
+|------|-----|------|
+| requests | 1 | 2Gi |
+| limits | 2 | 4Gi |
 
-**原因**：K3s 配置的镜像加速源已失效
+### 3.2 存储配置
 
-`/etc/rancher/k3s/registries.yaml`：
-```yaml
-mirrors:
-  "docker.io":
-    endpoint:
-      - "https://docker.mirrors.ustc.edu.cn"    # ❌ 已关闭
-      - "https://hub-mirror.c.163.com"           # ❌ 已关闭
-      - "https://registry.docker-cn.com"        # ❌ 已关闭
-```
+| 方案 | 数据存储 | 日志存储 | 宿主机路径 | 持久化 |
+|------|---------|---------|-----------|--------|
+| 方案一：local-path | 容器默认（暂不挂载） | `/var/log/taos` | 自动分配 | 日志持久化，数据不持久化 |
+| 方案二：hostPath | `/var/lib/taos` | `/var/log/taos` | `/mnt/disk1/k3s/tdengine` | 数据 + 日志持久化 |
 
-**错误日志**：
-```
-failed to do request: Head "https://docker.mirrors.ustc.edu.cn/...":
-dial tcp: lookup docker.mirrors.ustc.edu.cn: no such host
-```
+### 3.3 端口配置
 
-**解决方案**：
-
-1. 编辑镜像源配置
-```bash
-sudo tee /etc/rancher/k3s/registries.yaml << 'EOF'
-mirrors:
-  "docker.io":
-    endpoint:
-      - "https://docker.m.daocloud.io"
-      - "https://docker.1panel.live"
-      - "https://hub.rat.dev"
-EOF
-```
-
-2. 重启 K3s
-```bash
-sudo systemctl restart k3s
-```
-
-3. 重新部署
-```bash
-kubectl delete statefulset tdengine -n ecloud
-./deploy.sh
-```
-
----
-
-### 问题2：镜像版本不存在
-
-**现象**：
-```
-Failed to pull image "tdengine/tdengine:3.5.0":
-failed to resolve reference "docker.io/tdengine/tdengine:3.5.0"
-```
-
-**原因**：Docker Hub 上没有 `3.5.0` 标签
-
-**解决方案**：
-
-将镜像版本改为实际存在的标签：
-```yaml
-# statefulset.yaml
-image: tdengine/tsdb:3.4.1.13
-```
-
-**可用标签确认**：
-```bash
-# 查看本地已下载的镜像
-sudo k3s ctr images ls | grep tdengine
-
-# 输出
-docker.io/tdengine/tsdb:3.4.1.13  469.3 MiB  linux/amd64,linux/arm64/v8
-```
-
----
-
-### 问题3：命名空间变更
-
-**需求**：将命名空间从 `tdengine` 改为 `ecloud`
-
-**修改文件**：
-
-| 文件 | 修改内容 |
-|------|---------|
-| `namespace.yaml` | `name: ecloud` |
-| `kustomization.yaml` | `namespace: ecloud` |
-| `statefulset.yaml` | `namespace: ecloud` |
-| `service.yaml` | 两个 Service 的 `namespace: ecloud` |
-| `configmap.yaml` | `namespace: ecloud` |
-| `deploy.sh` | `NAMESPACE="ecloud"` |
-| `uninstall.sh` | `NAMESPACE="ecloud"` |
-| `README.md` | 所有 `-n tdengine` 改为 `-n ecloud` |
-
-**操作步骤**：
-```bash
-# 1. 删除旧命名空间
-kubectl delete namespace tdengine
-
-# 2. 重新部署
-./deploy.sh
-```
-
----
-
-### 问题4：镜像下载位置
-
-**镜像存储路径**：
-```
-/var/lib/rancher/k3s/agent/containerd/
-```
-
-**查看已下载镜像**：
-```bash
-sudo k3s ctr images ls | grep tdengine
-```
-
-**导出镜像备份**：
-```bash
-# 导出多架构版本（包含 amd64 + arm64）
-sudo k3s ctr images export tdengine-3.4.1.13.tar docker.io/tdengine/tsdb:3.4.1.13
-
-# 导出单架构版本（仅 amd64，体积更小）
-sudo k3s ctr images export --platform linux/amd64 tdengine-3.4.1.13-amd64.tar docker.io/tdengine/tsdb:3.4.1.13
-```
-
-**导入镜像（离线部署）**：
-```bash
-sudo k3s ctr images import tdengine-3.4.1.13.tar
-```
-
----
-
-### 问题5：避免重复下载镜像
-
-`imagePullPolicy` 控制镜像拉取行为：
-
-| 策略 | 说明 | 适用场景 |
+| 端口 | 用途 | NodePort |
 |------|------|---------|
-| `IfNotPresent` | 本地没有时才拉取 | 默认，适合在线环境 |
-| `Always` | 每次启动都强制拉取 | 镜像标签不变但内容更新 |
-| `Never` | 只使用本地镜像 | 完全离线环境 |
+| 6030 | taosd 服务端口 | 30603 |
+| 6041 | taosAdapter REST API | 30441 |
+| 6060 | taosExplorer 管理界面 | 30660 |
 
-当前配置：`IfNotPresent`
+### 3.4 TDengine 核心配置
 
-只要本地镜像不被删除，后续 `./deploy.sh` 不会重复下载。
+| 参数 | 值 | 说明 |
+|------|-----|------|
+| CLUSTER | 0 | 单节点模式 |
+| TAOS_REPLICA | 1 | 副本数 |
+| TAOS_DEBUG_FLAG | 131 | 日志级别（WARN + ERROR） |
+| timezone | UTC | 时区 |
+| smlTsDefaultName | ts | schemaless 默认时间戳列名 |
 
----
+## 四、访问方式
 
-## 四、服务端口说明
+| 服务 | 地址 | 认证 |
+|------|------|------|
+| taosAdapter REST API | http://192.168.31.222:30441 | root / taosdata |
+| taosExplorer 界面 | http://192.168.31.222:30660 | root / taosdata |
+| taosd 客户端 | 192.168.31.222:30603 | root / taosdata |
 
-| 端口 | 用途 | 访问方式 |
-|------|------|---------|
-| 6030 | taosd 服务端口 | NodePort 30603 |
-| 6041 | taosAdapter REST API | NodePort 30441 |
-| 6060 | taosExplorer 管理界面 | NodePort 30660 |
-
-## 五、核心配置要点
-
-### 5.1 FQDN 配置（关键）
-
-```yaml
-env:
-  - name: SERVICE_NAME
-    value: "tdengine-service"
-  - name: TAOS_FQDN
-    value: "$(POD_NAME).$(SERVICE_NAME).$(STS_NAMESPACE).svc.cluster.local"
-  - name: TAOS_FIRST_EP
-    value: "$(STS_NAME)-0.$(SERVICE_NAME).$(STS_NAMESPACE).svc.cluster.local:$(TAOS_SERVER_PORT)"
-```
-
-`TAOS_FQDN` 必须在 K8s 环境中设置，否则 dnode 注册会使用 IP 地址，导致集群通信失败。
-
-### 5.2 探针配置
-
-> **注意**：TDengine 3.4.x 版本起，`taos-check` 命令需要显式参数。3.3.x 及更早版本使用无参数形式。
-
-**3.4.x 版本配置（当前使用）：**
-
-```yaml
-startupProbe:
-  exec:
-    command: ["taos-check", "startup"]
-  failureThreshold: 360
-  periodSeconds: 10
-
-readinessProbe:
-  exec:
-    command: ["taos-check", "service"]
-  initialDelaySeconds: 5
-
-livenessProbe:
-  exec:
-    command: ["taos-check", "service"]
-  initialDelaySeconds: 15
-  periodSeconds: 20
-```
-
-**版本兼容性说明：**
-
-| TDengine 版本 | `taos-check` 用法 | 说明 |
-|-------------|------------------|------|
-| 3.3.x 及更早 | `taos-check`（无参数） | 直接检测服务状态 |
-| 3.4.x 及以后 | `taos-check [startup\|service]` | 必须指定子命令：`startup` 用于启动检测，`service` 用于就绪/存活检测 |
-
-> 3.4.x 使用无参数 `taos-check` 会报错：`usage: taos-check [startup|service]`，导致 Pod 无法就绪。
-
-### 5.3 存储配置
-
-使用单 PVC（官方推荐）：
-
-```yaml
-volumeClaimTemplates:
-  - metadata:
-      name: taosdata
-    spec:
-      accessModes: ["ReadWriteOnce"]
-      storageClassName: local-path
-      resources:
-        requests:
-          storage: 5Gi
-```
-
-## 六、运维命令
-
-### 6.1 查看 Pod 状态与日志
+## 五、常用运维命令
 
 ```bash
 # 查看 Pod 状态
-kubectl get pod tdengine-0 -n ecloud
+kubectl get pods -n ecloud -l app=tdengine
 
-# 查看 Pod 详情（含 Events 事件）
-kubectl describe pod tdengine-0 -n ecloud
-
-# 查看实时日志
+# 查看 Pod 日志
 kubectl logs -f tdengine-0 -n ecloud
 
-# 查看历史日志（最后 100 行）
-kubectl logs --tail=100 tdengine-0 -n ecloud
-```
-
-### 6.2 进入容器
-
-```bash
-# 进入容器 shell
-kubectl exec -it tdengine-0 -n ecloud -- /bin/bash
-
-# 进入 taos 命令行
+# 进入 TDengine 容器
 kubectl exec -it tdengine-0 -n ecloud -- taos
 
-# 执行单条 SQL
-kubectl exec -it tdengine-0 -n ecloud -- taos -s "show databases"
-
-# 查看容器内进程
-kubectl exec -it tdengine-0 -n ecloud -- ps aux
-
-# 查看 taosd 日志
-kubectl exec -it tdengine-0 -n ecloud -- tail -f /var/log/taos/taosdlog*
-```
-
-### 6.3 数据备份与导出
-
-```bash
-# 备份指定数据库
-kubectl exec -it tdengine-0 -n ecloud -- taosdump -o /tmp/backup -D product_basic
-
-# 从容器复制备份到本地
-kubectl cp ecloud/tdengine-0:/tmp/backup ./backup
-
-# 导出镜像（用于离线部署）
-sudo k3s ctr images export tdengine-3.4.1.13.tar docker.io/tdengine/tsdb:3.4.1.13
-```
-
-### 6.4 卸载与清理
-
-> **注意**：`kubectl delete statefulset` 只删除 StatefulSet 和 Pod，**不会删除 Service、ConfigMap、PVC**。以下按清理程度提供三种方案。
-
-#### 方案一：卸载脚本（推荐）
-
-```bash
-# 完全卸载（含数据删除）
-./uninstall.sh
-
-# 保留数据卸载（只删 StatefulSet、Service、ConfigMap，PVC 保留）
-./uninstall.sh --keep-data
-```
-
-| 模式 | 命令 | 效果 |
-|------|------|------|
-| 完全卸载 | `./uninstall.sh` | 删除 StatefulSet、Pod、Service、ConfigMap、**PVC（数据删除）** |
-| 保留数据 | `./uninstall.sh --keep-data` | 删除 StatefulSet、Pod、Service、ConfigMap，**PVC 保留** |
-
-**Namespace 保留**，可重新部署。保留数据模式适合修改配置后重新部署。
-
-#### 方案二：手动分步删除（按需选择）
-
-```bash
-# 1. 删除 StatefulSet（Pod 自动级联删除）
-kubectl delete statefulset tdengine -n ecloud
-
-# 2. 删除 Service
-kubectl delete service tdengine-service tdengine-nodeport -n ecloud
-
-# 3. 删除 ConfigMap
-kubectl delete configmap tdengine-config -n ecloud
-
-# 4. 删除 PVC（数据将被删除！）
-kubectl delete pvc -l app=tdengine -n ecloud
-kubectl delete pvc taosdata-tdengine-0 -n ecloud
-
-# 5. 删除 Namespace（彻底清理，包含所有资源）
-kubectl delete namespace ecloud
-```
-
-#### 方案三：一键彻底清理（最彻底，数据不可恢复）
-
-```bash
-# 删除整个命名空间，级联删除所有资源
-kubectl delete namespace ecloud
-```
-
-| 资源 | delete statefulset | ./uninstall.sh | ./uninstall.sh --keep-data | delete namespace |
-|------|-------------------|----------------|---------------------------|------------------|
-| StatefulSet | ✅ | ✅ | ✅ | ✅ |
-| Pod | ✅ | ✅ | ✅ | ✅ |
-| Service | ❌ | ✅ | ✅ | ✅ |
-| ConfigMap | ❌ | ✅ | ✅ | ✅ |
-| PVC（数据） | ❌ | ✅ | ❌ | ✅ |
-| Namespace | ❌ | ❌ | ❌ | ✅ |
-
-## 七、附录：三节点集群配置
-
-从单节点扩展为三节点集群，需修改 `statefulset.yaml`：
-
-```yaml
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
-  name: tdengine
-  namespace: ecloud
-  labels:
-    app: tdengine
-spec:
-  serviceName: tdengine-service
-  replicas: 3                    # 单节点: 1 → 三节点: 3
-  selector:
-    matchLabels:
-      app: tdengine
-  template:
-    metadata:
-      labels:
-        app: tdengine
-    spec:
-      # Pod 反亲和性：确保 3 个 Pod 分布在不同物理节点
-      affinity:
-        podAntiAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            - labelSelector:
-                matchLabels:
-                  app: tdengine
-              topologyKey: kubernetes.io/hostname
-      containers:
-        - name: tdengine
-          image: tdengine/tsdb:3.4.1.13
-          imagePullPolicy: IfNotPresent
-          ports:
-            - name: tcp6030
-              protocol: "TCP"
-              containerPort: 6030
-            - name: tcp6041
-              protocol: "TCP"
-              containerPort: 6041
-          env:
-            - name: POD_NAME
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.name
-            - name: SERVICE_NAME
-              value: "tdengine-service"
-            - name: STS_NAME
-              value: "tdengine"
-            - name: STS_NAMESPACE
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.namespace
-            - name: TZ
-              value: "UTC"
-            - name: TAOS_SERVER_PORT
-              value: "6030"
-            - name: TAOS_FIRST_EP
-              value: "$(STS_NAME)-0.$(SERVICE_NAME).$(STS_NAMESPACE).svc.cluster.local:$(TAOS_SERVER_PORT)"
-            - name: TAOS_FQDN
-              value: "$(POD_NAME).$(SERVICE_NAME).$(STS_NAMESPACE).svc.cluster.local"
-            - name: TAOS_CLUSTER
-              value: "1"            # 单节点: "0" → 三节点: "1"
-            - name: TAOS_DEBUG_FLAG
-              value: "131"
-          resources:
-            requests:
-              cpu: "2"
-              memory: "4Gi"
-            limits:
-              cpu: "4"
-              memory: "8Gi"
-          volumeMounts:
-            - name: taosdata
-              mountPath: /var/lib/taos
-          startupProbe:
-            exec:
-              command: ["taos-check", "startup"]
-            failureThreshold: 360
-            periodSeconds: 10
-          readinessProbe:
-            exec:
-              command: ["taos-check", "service"]
-            initialDelaySeconds: 5
-            timeoutSeconds: 5000
-          livenessProbe:
-            exec:
-              command: ["taos-check", "service"]
-            initialDelaySeconds: 15
-            periodSeconds: 20
-  volumeClaimTemplates:
-    - metadata:
-        name: taosdata
-      spec:
-        accessModes:
-          - "ReadWriteOnce"
-        storageClassName: local-path
-        resources:
-          requests:
-            storage: 20Gi
-```
-
-### 集群扩展步骤
-
-```bash
-# 1. 修改 statefulset.yaml 后应用
+# 升级配置（Kustomize 版本）
 kubectl apply -k .
 
-# 2. 验证集群节点
-kubectl exec -it tdengine-0 -n ecloud -- taos -s "show dnodes"
+# 回滚版本
+kubectl rollout undo statefulset/tdengine -n ecloud
 
-# 3. 验证 mnode
-kubectl exec -it tdengine-0 -n ecloud -- taos -s "show mnodes"
+# 卸载（保留 PVC，进入对应目录执行）
+./uninstall.sh --keep-data
+
+# 完全清理（包括 PVC，进入对应目录执行）
+./uninstall.sh
 ```
 
-### 缩容步骤（必须按顺序执行）
+## 六、扩容路径
+
+### 6.1 单节点 → 三节点集群
+
+```bash
+# 修改 hostpath/tdengine_hostpath.yaml 或 local-path/tdengine.yaml
+# 1. replicas: 1 → 3
+# 2. TAOS_CLUSTER: "0" → "1"
+# 3. 添加 Pod 反亲和性配置
+
+# 应用更新
+kubectl apply -k .
+
+# 验证
+kubectl exec -it tdengine-0 -n ecloud -- taos -s "show dnodes"
+```
+
+**注意**：单节点 K3s 扩容三节点时，需移除 `podAntiAffinity` 或添加更多工作节点。
+
+### 6.2 缩容步骤
 
 ```bash
 # 1. 查看 dnode 列表
 kubectl exec -it tdengine-0 -n ecloud -- taos -s "show dnodes"
 
-# 2. 先 drop dnode（不能直接缩容！）
-kubectl exec -it tdengine-0 -n ecloud -- taos -s "drop dnode 3"
+# 2. 先 drop dnode
+drop dnode 3
 
 # 3. 缩容 StatefulSet
 kubectl scale statefulset tdengine --replicas=2
@@ -541,46 +226,16 @@ kubectl scale statefulset tdengine --replicas=2
 kubectl delete pvc taosdata-tdengine-2 -n ecloud
 ```
 
-**不执行 `drop dnode` 直接缩容会导致 dnode stuck 在 `offline` 或 `dropping` 状态。**
+## 七、与 InfluxDB 共存
 
-**不执行 `drop dnode` 直接缩容会导致 dnode stuck 在 `offline` 或 `dropping` 状态。**
+迁移期间 TDengine 与 InfluxDB 同时运行在 `ecloud` 命名空间：
 
-## 八、镜像升级
+| 数据库 | 服务地址 | 用途 |
+|--------|---------|------|
+| InfluxDB（现有） | influxdb:8086 | 现有业务读写 |
+| TDengine（新部署） | 192.168.31.222:30441 | 新数据写入 / 查询验证 |
 
-### 镜像变更说明
-
-| 旧镜像 | 新镜像 |
-|--------|--------|
-| `tdengine/tdengine:3.3.6.13` | `tdengine/tsdb:3.4.1.13` |
-
-> `tdengine/tsdb` 是 TDengine 3.4.x 社区版官方镜像命名。
->
-> - 旧镜像标签页：[https://hub.docker.com/r/tdengine/tdengine/tags](https://hub.docker.com/r/tdengine/tdengine/tags)
-> - 新镜像标签页：[https://hub.docker.com/r/tdengine/tsdb/tags](https://hub.docker.com/r/tdengine/tsdb/tags)
-
-### 升级步骤
-
-```bash
-cd ~/k3s-deploy/relation-service/tdengine/k8s-native
-
-# 应用更新后的 YAML
-kubectl apply -k .
-
-# 或只更新镜像
-kubectl set image statefulset/tdengine tdengine=tdengine/tsdb:3.4.1.13 -n ecloud
-
-# 验证
-kubectl get pods -n ecloud -l app=tdengine -w
-kubectl exec -it tdengine-0 -n ecloud -- taosd -V
-```
-
-### 回滚
-
-```bash
-kubectl set image statefulset/tdengine tdengine=tdengine/tdengine:3.3.6.13 -n ecloud
-```
-
-## 九、参考文档
+## 八、参考文档
 
 - [TDengine-Operator GitHub](https://github.com/taosdata/TDengine-Operator/tree/3.0)
 - [TDengine K8s 手动部署指南](https://github.com/taosdata/TDengine-Operator/blob/3.0/src/en/2.1-tdengine-step-by-step.md)
