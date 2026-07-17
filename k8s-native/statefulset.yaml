@@ -85,6 +85,9 @@ spec:
           volumeMounts:
             - name: taosdata
               mountPath: /var/lib/taos
+            - name: taosconfig
+              mountPath: /etc/taos/taos.cfg
+              subPath: taos.cfg
           startupProbe:
             exec:
               command:
@@ -106,6 +109,10 @@ spec:
                 - service
             initialDelaySeconds: 15
             periodSeconds: 20
+      volumes:
+        - name: taosconfig
+          configMap:
+            name: tdengine-config
   volumeClaimTemplates:
     - metadata:
         name: taosdata

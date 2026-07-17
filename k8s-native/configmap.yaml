@@ -8,10 +8,6 @@ metadata:
 data:
   taos.cfg: |
     # TDengine 服务端配置文件
-    # 数据目录配置（使用 tiered 存储结构）
-    dataDir /data/taos0/  0 1
-    dataDir /data/taos1/  1 0
-    dataDir /data/taos2/  2 0
 
     # 日志目录
     logDir /var/log/taos
