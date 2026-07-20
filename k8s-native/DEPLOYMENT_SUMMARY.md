@@ -233,7 +233,29 @@ kubectl delete pvc taosdata-tdengine-2 -n ecloud
 | InfluxDB（现有） | influxdb:8086 | 现有业务读写 |
 | TDengine（新部署） | 192.168.31.222:30441 | 新数据写入 / 查询验证 |
 
-## 八、参考文档
+## 八、常见故障
+
+| 现象 | 可能原因 | 解决方法 |
+|------|---------|---------|
+| Pod 无法启动 | StorageClass 不存在 / hostPath 目录缺失 | 检查 `kubectl get sc`；确认 `/mnt/disk1/k3s/tdengine` 已创建 |
+| 日志出现 `Table does not exist` (taosd_cluster_info / xnode_task_activities) | taoskeeper 启动时序问题，内部监控表尚未初始化 | 正常现象，等待 5-10 分钟自动创建；不影响业务数据读写 |
+
+> **关于 `Table does not exist` 内部监控表错误**
+>
+> TDengine 3.4.x 启动初期，`taoskeeper` 监控进程会查询 `log.taosd_cluster_info`、`log.xnode_task_activities` 等内部监控表。这些表由 `taosd` / `taoskeeper` 自动创建，启动时序上可能存在短暂延迟，导致日志中出现 `Table does not exist` 报错。
+>
+> **判断方法**：
+> ```bash
+> kubectl exec -it tdengine-0 -n ecloud -- taos -s "show databases"
+> ```
+> 如果业务数据库存在且可查询，说明此错误不影响业务，可忽略。
+>
+> **处理方案**：
+> 1. **等待自动创建**（推荐）：通常 5-10 分钟后错误消失
+> 2. **重启 taosd 触发初始化**：`kubectl rollout restart statefulset tdengine -n ecloud`
+> 3. **不建议手动创建**：这些表结构可能随版本变化，手动创建可能导致兼容性问题
+
+## 九、参考文档
 
 - [TDengine-Operator GitHub](https://github.com/taosdata/TDengine-Operator/tree/3.0)
 - [TDengine K8s 手动部署指南](https://github.com/taosdata/TDengine-Operator/blob/3.0/src/en/2.1-tdengine-step-by-step.md)

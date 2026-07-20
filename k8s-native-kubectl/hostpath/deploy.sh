@@ -19,14 +19,30 @@ kubectl get nodes > /dev/null 2>&1 || {
     exit 1
 }
 
-# 2. 检查 hostPath 目录
+# 2. 检查并创建 hostPath 目录
 echo "[2/5] 检查 hostPath 目录..."
 NODE_NAME=$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}')
 HOST_PATH="/mnt/disk1/k3s/tdengine"
 echo "  节点: ${NODE_NAME}"
 echo "  hostPath: ${HOST_PATH}"
-echo "  请确保宿主机目录 ${HOST_PATH}/data 和 ${HOST_PATH}/log 已创建"
-echo "  mkdir -p ${HOST_PATH}/data ${HOST_PATH}/log"
+
+# 通过 kubectl 在节点上创建目录
+echo "  检查并创建宿主机目录..."
+LOCAL_PATH_POD=$(kubectl get pod -n kube-system -l app=local-path-provisioner -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+if [ -n "${LOCAL_PATH_POD}" ]; then
+    kubectl exec -it ${LOCAL_PATH_POD} -n kube-system -- sh -c "mkdir -p ${HOST_PATH}/data ${HOST_PATH}/log && chmod 755 ${HOST_PATH}/data ${HOST_PATH}/log" > /dev/null 2>&1 && {
+        echo "  ✓ 宿主机目录已创建"
+    } || {
+        echo "  ⚠️  无法通过 local-path-provisioner 创建目录"
+        echo "  请手动在节点 ${NODE_NAME} 上执行:"
+        echo "    sudo mkdir -p ${HOST_PATH}/data ${HOST_PATH}/log"
+        echo "    sudo chmod 755 ${HOST_PATH}/data ${HOST_PATH}/log"
+    }
+else
+    echo "  ⚠️  无法自动创建目录，请手动在节点 ${NODE_NAME} 上执行:"
+    echo "    sudo mkdir -p ${HOST_PATH}/data ${HOST_PATH}/log"
+    echo "    sudo chmod 755 ${HOST_PATH}/data ${HOST_PATH}/log"
+fi
 
 # 3. 创建命名空间（如果不存在）
 echo "[3/5] 创建命名空间 ${NAMESPACE}..."

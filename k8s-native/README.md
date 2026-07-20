@@ -367,6 +367,29 @@ kubectl delete pvc -l app=tdengine -n ecloud
 | 写入失败 | 数据库/表未创建 | 先执行建库建表 SQL |
 | dnode 显示 offline | FQDN 配置错误 | 检查 `TAOS_FQDN` 环境变量和 DNS 解析 |
 | 性能低下 | 资源不足 | 增加 CPU/内存限制，或扩展为集群模式 |
+| 日志出现 `Table does not exist` (taosd_cluster_info / xnode_task_activities) | taoskeeper 启动时序问题，内部监控表尚未初始化 | 正常现象，等待 5-10 分钟自动创建；不影响业务数据读写 |
+
+> **关于 `Table does not exist` 内部监控表错误**
+>
+> TDengine 3.4.x 启动初期，`taoskeeper` 监控进程会查询 `log.taosd_cluster_info`、`log.xnode_task_activities` 等内部监控表。这些表由 `taosd` / `taoskeeper` 自动创建，启动时序上可能存在短暂延迟，导致日志中出现 `Table does not exist` 报错。
+>
+> **判断方法**：
+> ```bash
+> # 确认业务数据正常
+> kubectl exec -it tdengine-0 -n ecloud -- taos -s "show databases"
+> ```
+> 如果业务数据库（如 `product_basic`、`product_health`）存在且可查询，说明此错误不影响业务，可忽略。
+>
+> **处理方案**：
+> 1. **等待自动创建**（推荐）：通常 5-10 分钟后错误消失
+> 2. **重启 taosd 触发初始化**：`kubectl rollout restart statefulset tdengine -n ecloud`
+> 3. **不建议手动创建**：这些表结构可能随版本变化，手动创建可能导致兼容性问题
+>
+> 相关进程确认：
+> ```bash
+> kubectl exec -it tdengine-0 -n ecloud -- ps aux | grep keeper
+> # 应看到 taoskeeper 进程在运行
+> ```
 
 ## 附录：镜像地址
 
